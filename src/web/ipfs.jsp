@@ -25,7 +25,7 @@
 %>
 <html>
 <head>
-   <title><fmt:message key="config.page.title" /></title>
+   <title><fmt:message key="plugin.title.description" /></title>
 
    <meta name="pageID" content="ipfs-settings"/>
 </head>
@@ -43,7 +43,7 @@
         <table class="jive-table" cellpadding="0" cellspacing="0" border="0" width="100%">
             <thead> 
             <tr>
-                <th colspan="2"><fmt:message key="config.page.title"/></th>
+                <th colspan="2"><fmt:message key="config.page.settings.description"/></th>
             </tr>
             </thead>
             <tbody>  

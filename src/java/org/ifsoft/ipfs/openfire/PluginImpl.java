@@ -52,6 +52,7 @@ public class PluginImpl implements Plugin, PropertyEventListener, ProcessListene
     private boolean ipfsInitialise = false;
     private boolean ipfsStart = false;
     private boolean ipfsReady = false;
+    private boolean ipfsError = false;
     private IPFS ipfs;
 
     public void destroyPlugin()
@@ -59,6 +60,8 @@ public class PluginImpl implements Plugin, PropertyEventListener, ProcessListene
         PropertyEventDispatcher.removeListener(this);
 
         try {
+            Spawn.startProcess(ipfsExePath + " shutdown", new File(ipfsHomePath), this);
+
             if (ipfsThread != null) {
                 ipfsThread.destory();
             }
@@ -78,7 +81,7 @@ public class PluginImpl implements Plugin, PropertyEventListener, ProcessListene
 
         if (ipfsExePath != null && ipfsEnabled)
         {
-            ipfsThread = Spawn.startProcess(ipfsExePath + " daemon", new File(ipfsHomePath), this);
+            ipfsThread = doSpawn();
 
         } else {
             Log.info("IPFS disabled");
@@ -115,6 +118,12 @@ public class PluginImpl implements Plugin, PropertyEventListener, ProcessListene
                 Log.error("IPFS error ", e);
             }
         }
+        else
+
+        if (line.startsWith("Error: "))
+        {
+            ipfsError = true;
+        }
     }
 
     public void onProcessQuit(int code) {
@@ -124,7 +133,7 @@ public class PluginImpl implements Plugin, PropertyEventListener, ProcessListene
         {
             Log.error("IPFS terminated in error. Code :" + code);
 
-            if (code == 1)
+            if (code == 1 && !ipfsError)
             {
                 Log.error("IPFS initialise " + ipfsInitialise);
 
@@ -135,7 +144,8 @@ public class PluginImpl implements Plugin, PropertyEventListener, ProcessListene
         else
 
         if (ipfsStart) {
-            Spawn.startProcess(ipfsExePath + " daemon", new File(ipfsHomePath), this);
+            ipfsThread = doSpawn();
+
             ipfsStart = false;
             ipfsInitialise = true;
         }
@@ -151,6 +161,15 @@ public class PluginImpl implements Plugin, PropertyEventListener, ProcessListene
 
     public void onError(final Throwable t) {
         Log.error("IPFSThread error", t);
+    }
+
+    private XProcess doSpawn()
+    {
+        Spawn.startProcess(ipfsExePath + " config --json API.HTTPHeaders.Access-Control-Allow-Origin \"[\\\"*\\\"]\"", new File(ipfsHomePath), this);
+        Spawn.startProcess(ipfsExePath + " config --json API.HTTPHeaders.Access-Control-Allow-Methods \"[\\\"PUT\\\", \\\"GET\\\", \\\"POST\\\"]\"", new File(ipfsHomePath), this);
+        Spawn.startProcess(ipfsExePath + " config --json API.HTTPHeaders.Access-Control-Allow-Credentials \"[\\\"true\\\"]\"", new File(ipfsHomePath), this);
+
+        return Spawn.startProcess(ipfsExePath + " daemon --enable-pubsub-experiment", new File(ipfsHomePath), this);
     }
 
     private void checkNatives(File pluginDirectory)

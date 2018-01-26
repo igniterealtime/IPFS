@@ -11,12 +11,9 @@
 
    <adminconsole>
         <tab id="tab-server">
-            <sidebar id="siderbar-ipfs"
-                     name="${plugin.title}">
-                <item id="ipfs-settings"
-                      name="${plugin.title}"
-                      description="${plugin.title.description}"
-                      url="ipfs.jsp"/>
+            <sidebar id="siderbar-ipfs" name="${plugin.title}" description="${plugin.title.description}" >
+                <item id="ipfs-settings" name="${config.page.settings}" description="${config.page.settings.description}" url="ipfs.jsp"/>
+                <item id="ipfs-webui" name="${config.page.webui}" description="${config.page.webui.description}" url="ipfs-webui.jsp"/>                                
             </sidebar>
         </tab>
     </adminconsole> 
