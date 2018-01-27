@@ -18,6 +18,9 @@
         String path = request.getParameter("path");     
         JiveGlobals.setProperty("ipfs.path", path);                 
 
+        String ipaddr = request.getParameter("ipaddr");     
+        JiveGlobals.setProperty("ipfs.ipaddr", ipaddr);   
+        
         String ipfsEnabled = request.getParameter("ipfsEnabled");
         JiveGlobals.setProperty("ipfs.enabled", (ipfsEnabled != null && ipfsEnabled.equals("on")) ? "true": "false");        
     }
@@ -60,7 +63,15 @@
                 <td><input type="text" size="50" maxlength="100" name="path"
                        value="<%= JiveGlobals.getProperty("ipfs.path", plugin.getPath()) %>">
                 </td>
-            </tr>            
+            </tr>  
+            <tr>
+                <td align="left" width="150">
+                    <fmt:message key="config.page.configuration.ipaddr"/>
+                </td>
+                <td><input type="text" size="50" maxlength="100" name="ipaddr"
+                       value="<%= JiveGlobals.getProperty("ipfs.ipaddr", plugin.getIpAddress()) %>">
+                </td>
+            </tr>             
             </tbody>
         </table>
     </p>

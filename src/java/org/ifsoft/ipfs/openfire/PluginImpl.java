@@ -17,9 +17,12 @@
 package org.ifsoft.ipfs.openfire;
 
 import java.io.File;
+import java.net.*;
 
 import org.jivesoftware.openfire.container.Plugin;
 import org.jivesoftware.openfire.container.PluginManager;
+import org.jivesoftware.openfire.http.HttpBindManager;
+import org.jivesoftware.openfire.XMPPServer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,6 +30,21 @@ import org.slf4j.LoggerFactory;
 import org.jivesoftware.util.JiveGlobals;
 import org.jivesoftware.util.PropertyEventDispatcher;
 import org.jivesoftware.util.PropertyEventListener;
+
+import org.eclipse.jetty.apache.jsp.JettyJasperInitializer;
+import org.eclipse.jetty.plus.annotation.ContainerInitializer;
+import org.eclipse.jetty.server.handler.ContextHandlerCollection;
+import org.eclipse.jetty.proxy.ProxyServlet;
+import org.eclipse.jetty.servlets.*;
+import org.eclipse.jetty.servlet.*;
+import org.eclipse.jetty.webapp.WebAppContext;
+
+import org.eclipse.jetty.util.security.*;
+import org.eclipse.jetty.security.*;
+import org.eclipse.jetty.security.authentication.*;
+
+import org.apache.tomcat.InstanceManager;
+import org.apache.tomcat.SimpleInstanceManager;
 
 import java.lang.reflect.*;
 import java.util.*;
@@ -54,17 +72,23 @@ public class PluginImpl implements Plugin, PropertyEventListener, ProcessListene
     private boolean ipfsReady = false;
     private boolean ipfsError = false;
     private IPFS ipfs;
+    private ServletContextHandler ipfsContext;
+    private ServletContextHandler apiContext;
 
     public void destroyPlugin()
     {
         PropertyEventDispatcher.removeListener(this);
 
         try {
-            Spawn.startProcess(ipfsExePath + " shutdown", new File(ipfsHomePath), this);
 
             if (ipfsThread != null) {
-                ipfsThread.destory();
+                //ipfsThread.destory();
             }
+
+            Spawn.startProcess(ipfsExePath + " shutdown", new File(ipfsHomePath), this);
+
+            HttpBindManager.getInstance().removeJettyHandler(ipfsContext);
+            HttpBindManager.getInstance().removeJettyHandler(apiContext);
         }
         catch (Exception e) {
             //Log.error("IPFS destroyPlugin ", e);
@@ -81,7 +105,7 @@ public class PluginImpl implements Plugin, PropertyEventListener, ProcessListene
 
         if (ipfsExePath != null && ipfsEnabled)
         {
-            ipfsThread = doSpawn();
+            ipfsThread = Spawn.startProcess(ipfsExePath + " daemon --enable-pubsub-experiment", new File(ipfsHomePath), this);
 
         } else {
             Log.info("IPFS disabled");
@@ -98,8 +122,22 @@ public class PluginImpl implements Plugin, PropertyEventListener, ProcessListene
         return pluginDirectoryPath;
     }
 
+    public String getIpAddress()
+    {
+        String ourHostname = XMPPServer.getInstance().getServerInfo().getHostname();
+        String ourIpAddress = "127.0.0.1";
+
+        try {
+            ourIpAddress = InetAddress.getByName(ourHostname).getHostAddress();
+        } catch (Exception e) {
+
+        }
+
+        return ourIpAddress;
+    }
+
     public void onOutputLine(final String line) {
-        Log.info(line);
+        Log.info("onOutputLine: " + line + " " + ipfsInitialise + " " + ipfsStart + " " + ipfsReady  + " " + ipfsError);
 
         if (line.startsWith("please run: 'ipfs init'"))
         {
@@ -110,6 +148,8 @@ public class PluginImpl implements Plugin, PropertyEventListener, ProcessListene
         if (line.startsWith("Daemon is ready"))
         {
             try {
+                setCors();
+
                 ipfsReady = true;
                 ipfs = new IPFS(new MultiAddress("/ip4/127.0.0.1/tcp/5001"));
 
@@ -117,6 +157,8 @@ public class PluginImpl implements Plugin, PropertyEventListener, ProcessListene
             } catch (Exception e) {
                 Log.error("IPFS error ", e);
             }
+
+            addIpfsProxy();
         }
         else
 
@@ -127,7 +169,7 @@ public class PluginImpl implements Plugin, PropertyEventListener, ProcessListene
     }
 
     public void onProcessQuit(int code) {
-        ipfsThread = null;
+        Log.info("onProcessQuit " + code + " " + ipfsInitialise + " " + ipfsStart + " " + ipfsReady  + " " + ipfsError);
 
         if (code > 0)
         {
@@ -137,17 +179,19 @@ public class PluginImpl implements Plugin, PropertyEventListener, ProcessListene
             {
                 Log.error("IPFS initialise " + ipfsInitialise);
 
-                ipfsThread = Spawn.startProcess(ipfsExePath + " init", new File(ipfsHomePath), this);
+                Spawn.startProcess(ipfsExePath + " init", new File(ipfsHomePath), this);
                 ipfsStart = true;
             }
         }
-        else
+        else {
+            ipfsError = false;
 
-        if (ipfsStart) {
-            ipfsThread = doSpawn();
+            if (ipfsStart) {
+                ipfsThread = Spawn.startProcess(ipfsExePath + " daemon --enable-pubsub-experiment", new File(ipfsHomePath), this);
 
-            ipfsStart = false;
-            ipfsInitialise = true;
+                ipfsStart = false;
+                ipfsInitialise = true;
+            }
         }
     }
 
@@ -157,19 +201,57 @@ public class PluginImpl implements Plugin, PropertyEventListener, ProcessListene
 
     public void onErrorLine(final String line) {
         Log.error(line);
+
+        if (line.startsWith("Error: cannot acquire lock:"))
+        {
+            try {
+                ipfsError = true;
+
+                if (ipfsThread != null) {
+                    ipfsThread.destory();
+                }
+            }
+            catch (Exception e) {
+                //Log.error("IPFS destroyPlugin ", e);
+            }
+        }
     }
 
     public void onError(final Throwable t) {
         Log.error("IPFSThread error", t);
     }
 
-    private XProcess doSpawn()
+    private void setCors()
     {
-        Spawn.startProcess(ipfsExePath + " config --json API.HTTPHeaders.Access-Control-Allow-Origin \"[\\\"*\\\"]\"", new File(ipfsHomePath), this);
-        Spawn.startProcess(ipfsExePath + " config --json API.HTTPHeaders.Access-Control-Allow-Methods \"[\\\"PUT\\\", \\\"GET\\\", \\\"POST\\\"]\"", new File(ipfsHomePath), this);
-        Spawn.startProcess(ipfsExePath + " config --json API.HTTPHeaders.Access-Control-Allow-Credentials \"[\\\"true\\\"]\"", new File(ipfsHomePath), this);
+        //Spawn.startProcess(ipfsExePath + " config --json API.HTTPHeaders.Access-Control-Allow-Origin \"[\\\"*\\\"]\"", new File(ipfsHomePath), this);
+        //Spawn.startProcess(ipfsExePath + " config --json API.HTTPHeaders.Access-Control-Allow-Methods \"[\\\"PUT\\\", \\\"GET\\\", \\\"POST\\\"]\"", new File(ipfsHomePath), this);
+        //Spawn.startProcess(ipfsExePath + " config --json API.HTTPHeaders.Access-Control-Allow-Credentials \"[\\\"true\\\"]\"", new File(ipfsHomePath), this);
+    }
 
-        return Spawn.startProcess(ipfsExePath + " daemon --enable-pubsub-experiment", new File(ipfsHomePath), this);
+
+    private void addIpfsProxy()
+    {
+        Log.info("Initialize IpfsProxy");
+
+        ipfsContext = new ServletContextHandler(null, "/ipfs", ServletContextHandler.SESSIONS);
+        ipfsContext.setClassLoader(this.getClass().getClassLoader());
+
+        ServletHolder proxyServlet = new ServletHolder(ProxyServlet.Transparent.class);
+        proxyServlet.setInitParameter("proxyTo", "http://127.0.0.1:8080/ipfs");
+        proxyServlet.setInitParameter("prefix", "/");
+        ipfsContext.addServlet(proxyServlet, "/*");
+
+        HttpBindManager.getInstance().addJettyHandler(ipfsContext);
+
+        apiContext = new ServletContextHandler(null, "/api", ServletContextHandler.SESSIONS);
+        apiContext.setClassLoader(this.getClass().getClassLoader());
+
+        ServletHolder proxyServlet2 = new ServletHolder(ProxyServlet.Transparent.class);
+        proxyServlet2.setInitParameter("proxyTo", "http://127.0.0.1:5001/api");
+        proxyServlet2.setInitParameter("prefix", "/");
+        apiContext.addServlet(proxyServlet2, "/*");
+
+        HttpBindManager.getInstance().addJettyHandler(apiContext);
     }
 
     private void checkNatives(File pluginDirectory)

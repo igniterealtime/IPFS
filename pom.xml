@@ -197,11 +197,19 @@
             <version>${openfire.version}</version>
             <scope>provided</scope>
         </dependency>
+        
         <dependency>
           <groupId>com.github.ipfs</groupId>
           <artifactId>java-ipfs-api</artifactId>
           <version>v1.1.1</version>
-        </dependency>        
+        </dependency>  
+        
+        <dependency>
+            <groupId>org.eclipse.jetty</groupId>
+            <artifactId>jetty-proxy</artifactId>
+            <version>9.2.14.v20151106</version>
+        </dependency>
+        
     </dependencies>
 
     <repositories>
