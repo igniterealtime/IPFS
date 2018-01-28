@@ -68,9 +68,10 @@ public class PluginImpl implements Plugin, PropertyEventListener, ProcessListene
     private String ipfsExePath = null;
     private String ipfsHomePath = null;
     private boolean ipfsInitialise = false;
+    private boolean ipfsConfigure = false;
     private boolean ipfsStart = false;
     private boolean ipfsReady = false;
-    private boolean ipfsError = false;
+    private String ipfsError = null;
     private IPFS ipfs;
     private ServletContextHandler ipfsContext;
     private ServletContextHandler apiContext;
@@ -137,19 +138,11 @@ public class PluginImpl implements Plugin, PropertyEventListener, ProcessListene
     }
 
     public void onOutputLine(final String line) {
-        Log.info("onOutputLine: " + line + " " + ipfsInitialise + " " + ipfsStart + " " + ipfsReady  + " " + ipfsError);
-
-        if (line.startsWith("please run: 'ipfs init'"))
-        {
-            ipfsInitialise = true;
-        }
-        else
+        Log.info(line);
 
         if (line.startsWith("Daemon is ready"))
         {
             try {
-                setCors();
-
                 ipfsReady = true;
                 ipfs = new IPFS(new MultiAddress("/ip4/127.0.0.1/tcp/5001"));
 
@@ -162,37 +155,42 @@ public class PluginImpl implements Plugin, PropertyEventListener, ProcessListene
         }
         else
 
-        if (line.startsWith("Error: "))
+        if (line.startsWith("peer identity:"))
         {
-            ipfsError = true;
+            ipfsConfigure = true;
         }
     }
 
     public void onProcessQuit(int code) {
-        Log.info("onProcessQuit " + code + " " + ipfsInitialise + " " + ipfsStart + " " + ipfsReady  + " " + ipfsError);
 
-        if (code > 0)
+        if (ipfsInitialise)
         {
-            Log.error("IPFS terminated in error. Code :" + code);
+            ipfsInitialise = false;
 
-            if (code == 1 && !ipfsError)
-            {
-                Log.error("IPFS initialise " + ipfsInitialise);
+            Log.info("IPFS initialise");
 
-                Spawn.startProcess(ipfsExePath + " init", new File(ipfsHomePath), this);
-                ipfsStart = true;
-            }
+            Spawn.startProcess(ipfsExePath + " init", new File(ipfsHomePath), this);
+
+        }
+        else
+
+        if (ipfsConfigure)
+        {
+            ipfsConfigure = false;
+            setCors();
+            ipfsStart = true;
+        }
+        else
+
+        if (ipfsStart) {
+            ipfsStart = false;
+
+            ipfsThread = Spawn.startProcess(ipfsExePath + " daemon --enable-pubsub-experiment", new File(ipfsHomePath), this);
         }
         else {
-            ipfsError = false;
-
-            if (ipfsStart) {
-                ipfsThread = Spawn.startProcess(ipfsExePath + " daemon --enable-pubsub-experiment", new File(ipfsHomePath), this);
-
-                ipfsStart = false;
-                ipfsInitialise = true;
-            }
+            Log.info("onProcessQuit " + code + " " + ipfsInitialise + " " + ipfsStart + " " + ipfsReady  + "\n" + ipfsError);
         }
+
     }
 
     public void onOutputClosed() {
@@ -202,19 +200,17 @@ public class PluginImpl implements Plugin, PropertyEventListener, ProcessListene
     public void onErrorLine(final String line) {
         Log.error(line);
 
-        if (line.startsWith("Error: cannot acquire lock:"))
+        if (line.startsWith("Error:"))
         {
-            try {
-                ipfsError = true;
-
-                if (ipfsThread != null) {
-                    ipfsThread.destory();
-                }
-            }
-            catch (Exception e) {
-                //Log.error("IPFS destroyPlugin ", e);
-            }
+            ipfsError = line;
         }
+        else
+
+        if (line.startsWith("please run: 'ipfs init'"))
+        {
+            ipfsInitialise = true;
+        }
+
     }
 
     public void onError(final Throwable t) {
@@ -223,9 +219,17 @@ public class PluginImpl implements Plugin, PropertyEventListener, ProcessListene
 
     private void setCors()
     {
-        //Spawn.startProcess(ipfsExePath + " config --json API.HTTPHeaders.Access-Control-Allow-Origin \"[\\\"*\\\"]\"", new File(ipfsHomePath), this);
-        //Spawn.startProcess(ipfsExePath + " config --json API.HTTPHeaders.Access-Control-Allow-Methods \"[\\\"PUT\\\", \\\"GET\\\", \\\"POST\\\"]\"", new File(ipfsHomePath), this);
-        //Spawn.startProcess(ipfsExePath + " config --json API.HTTPHeaders.Access-Control-Allow-Credentials \"[\\\"true\\\"]\"", new File(ipfsHomePath), this);
+        if(OSUtils.IS_WINDOWS64)
+        {
+            Spawn.startProcess(ipfsExePath + " config --json API.HTTPHeaders.Access-Control-Allow-Origin \"[\\\"*\\\"]\"", new File(ipfsHomePath), this);
+            Spawn.startProcess(ipfsExePath + " config --json API.HTTPHeaders.Access-Control-Allow-Methods \"[\\\"PUT\\\", \\\"GET\\\", \\\"POST\\\"]\"", new File(ipfsHomePath), this);
+            Spawn.startProcess(ipfsExePath + " config --json API.HTTPHeaders.Access-Control-Allow-Credentials \"[\\\"true\\\"]\"", new File(ipfsHomePath), this);
+
+        } else {
+            Spawn.startProcess(ipfsExePath + " config --json API.HTTPHeaders.Access-Control-Allow-Origin '[\"*\"]'", new File(ipfsHomePath), this);
+            Spawn.startProcess(ipfsExePath + " config --json API.HTTPHeaders.Access-Control-Allow-Methods '[\"PUT\", \"GET\", \"POST\"]'", new File(ipfsHomePath), this);
+            Spawn.startProcess(ipfsExePath + " config --json API.HTTPHeaders.Access-Control-Allow-Credentials '[\"true\"]'", new File(ipfsHomePath), this);
+        }
     }
 
 
