@@ -16,9 +16,9 @@
     PluginImpl plugin = (PluginImpl) XMPPServer.getInstance().getPluginManager().getPlugin("ipfs");
     String ipaddr = JiveGlobals.getProperty("ipfs.ipaddr", plugin.getIpAddress());   
     
-    String serverScheme = "http";
+    String serverScheme = "https";
     String serverHost = JiveGlobals.getProperty("xmpp.fqdn", XMPPServer.getInstance().getServerInfo().getHostname());
-    String serverPort = JiveGlobals.getProperty("solo.port.plain", JiveGlobals.getProperty("httpbind.port.plain", "7070"));    
+    String serverPort = JiveGlobals.getProperty("httpbind.port.secure", "7443");    
 %>
 
 <html>

@@ -18,6 +18,11 @@ package org.ifsoft.ipfs.openfire;
 
 import java.io.File;
 import java.net.*;
+import java.util.concurrent.*;
+import java.util.*;
+import java.util.function.*;
+import java.util.stream.*;
+import java.nio.file.*;
 
 import org.jivesoftware.openfire.container.Plugin;
 import org.jivesoftware.openfire.container.PluginManager;
@@ -59,7 +64,6 @@ import io.ipfs.cid.*;
 import io.ipfs.multihash.Multihash;
 import io.ipfs.multiaddr.MultiAddress;
 
-
 public class PluginImpl implements Plugin, PropertyEventListener, ProcessListener
 {
     private static final Logger Log = LoggerFactory.getLogger(PluginImpl.class);
@@ -75,12 +79,20 @@ public class PluginImpl implements Plugin, PropertyEventListener, ProcessListene
     private IPFS ipfs;
     private ServletContextHandler ipfsContext;
     private ServletContextHandler apiContext;
+    private ExecutorService executor;
+    private boolean keepRunning = true;
 
     public void destroyPlugin()
     {
         PropertyEventDispatcher.removeListener(this);
 
         try {
+            keepRunning = false;
+
+            if (executor != null)
+            {
+                executor.shutdown();
+            }
 
             if (ipfsThread != null) {
                 //ipfsThread.destory();
@@ -106,6 +118,7 @@ public class PluginImpl implements Plugin, PropertyEventListener, ProcessListene
 
         if (ipfsExePath != null && ipfsEnabled)
         {
+            executor = Executors.newCachedThreadPool();
             ipfsThread = Spawn.startProcess(ipfsExePath + " daemon --enable-pubsub-experiment", new File(ipfsHomePath), this);
 
         } else {
@@ -144,14 +157,18 @@ public class PluginImpl implements Plugin, PropertyEventListener, ProcessListene
         {
             try {
                 ipfsReady = true;
-                ipfs = new IPFS(new MultiAddress("/ip4/127.0.0.1/tcp/5001"));
 
-                Log.info("IPFS version " + ipfs.version() + " ready");
+                executor.submit(new Callable<Boolean>()
+                {
+                    public Boolean call() throws Exception
+                    {
+                        return addIpfsProxy();
+                    }
+                });
+
             } catch (Exception e) {
                 Log.error("IPFS error ", e);
             }
-
-            addIpfsProxy();
         }
         else
 
@@ -233,7 +250,7 @@ public class PluginImpl implements Plugin, PropertyEventListener, ProcessListene
     }
 
 
-    private void addIpfsProxy()
+    private boolean addIpfsProxy()
     {
         Log.info("Initialize IpfsProxy");
 
@@ -256,6 +273,46 @@ public class PluginImpl implements Plugin, PropertyEventListener, ProcessListene
         apiContext.addServlet(proxyServlet2, "/*");
 
         HttpBindManager.getInstance().addJettyHandler(apiContext);
+
+        return setupPubSub();
+    }
+
+    private boolean setupPubSub()
+    {
+        Log.info("Initialize setupPubSub");
+
+        try {
+            ipfs = new IPFS(new MultiAddress("/ip4/127.0.0.1/tcp/5001"));
+            Log.info("IPFS version " + ipfs.version() + " ready");
+
+            new Timer().schedule(new TimerTask()
+            {
+                @Override public void run()
+                {
+                    try {
+                        Object peers = ipfs.pubsub.peers();
+                        Log.info("IPFS Pubsub peers\n" + peers);
+                    } catch (Exception e) {
+                        Log.error("setupPubSub", e);
+                    }
+                }
+            }, 360000);          // wait for 3 secs to gather enough peers
+
+            String topic = "openfire.ipfs.ipaddr";
+            ipfs.pubsub.pub(topic, getIpAddress());
+            Supplier<Object> sub = ipfs.pubsub.sub(topic);
+
+            while (keepRunning)
+            {
+                Object peer = sub.get();
+                Log.info("IPFS Openfire peer\n" + peer);
+            }
+
+        } catch (Exception e) {
+            Log.error("setupPubSub", e);
+        }
+
+        return true;
     }
 
     private void checkNatives(File pluginDirectory)

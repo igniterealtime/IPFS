@@ -201,7 +201,7 @@
         <dependency>
           <groupId>com.github.ipfs</groupId>
           <artifactId>java-ipfs-api</artifactId>
-          <version>v1.1.1</version>
+          <version>v1.2.0</version>
         </dependency>  
         
         <dependency>
